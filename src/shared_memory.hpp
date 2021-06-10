@@ -9,6 +9,10 @@ class shared_memory : public Napi::ObjectWrap<shared_memory> {
 public:
     static void init(Napi::Env env, Napi::Object &exports);
 
+    static Napi::Value generateId(const Napi::CallbackInfo &info);
+
+    static Napi::Value generateIdAsync(const Napi::CallbackInfo &info);
+
     explicit shared_memory(const Napi::CallbackInfo &info);
 
     void writeData(const Napi::CallbackInfo &info);

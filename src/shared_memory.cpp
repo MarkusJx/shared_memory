@@ -1,5 +1,6 @@
 #include "shared_memory.hpp"
 #include <napi_tools.hpp>
+#include <random>
 
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32) && !defined(__CYGWIN__)
 #   define OS_WINDOWS
@@ -10,6 +11,12 @@
 #include <windows.h>
 
 #undef min
+#undef max
+
+#else
+
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
 #endif
 
@@ -29,7 +36,7 @@ std::string GetLastErrorAsString() {
     //The parameters we pass in, tell Win32 to create the buffer that holds the message for us (because we don't yet know how long the message string will be).
     size_t size = FormatMessageA(
             FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr,
-            errorMessageID, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR) & messageBuffer, 0, nullptr);
+            errorMessageID, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR) &messageBuffer, 0, nullptr);
 
     // If the message ends with a new line
     // (+ a carriage return ['\r'], this is still windows) remove that
@@ -46,7 +53,13 @@ std::string GetLastErrorAsString() {
     return message;
 }
 
-#endif
+#else
+
+std::string getErrnoAsString() {
+    return strerror(errno);
+}
+
+#endif //OS_WINDOWS
 
 class shared_memory::extra_info {
 public:
@@ -55,7 +68,12 @@ public:
     explicit extra_info(HANDLE map) : map(map) {}
 
     HANDLE map;
-#endif
+#else
+
+    explicit extra_info(int id) : id(id) {}
+
+    int id;
+#endif //OS_WINDOWS
 };
 
 void shared_memory::init(Napi::Env env, Napi::Object &exports) {
@@ -64,7 +82,9 @@ void shared_memory::init(Napi::Env env, Napi::Object &exports) {
             InstanceMethod("read", &shared_memory::readString, napi_enumerable),
             InstanceMethod("readBuffer", &shared_memory::readBuffer, napi_enumerable),
             InstanceAccessor("data", &shared_memory::readString, &shared_memory::setString, napi_enumerable),
-            InstanceAccessor("buffer", &shared_memory::readBuffer, &shared_memory::setBuffer, napi_enumerable)
+            InstanceAccessor("buffer", &shared_memory::readBuffer, &shared_memory::setBuffer, napi_enumerable),
+            StaticMethod("generateId", &shared_memory::generateId, napi_enumerable),
+            StaticMethod("generateIdAsync", &shared_memory::generateIdAsync, napi_enumerable)
     });
 
     auto constructor = new Napi::FunctionReference();
@@ -74,16 +94,81 @@ void shared_memory::init(Napi::Env env, Napi::Object &exports) {
     env.SetInstanceData<Napi::FunctionReference>(constructor);
 }
 
+std::string getGenerateId(bool global) {
+    static std::random_device dev;
+    static std::mt19937 rng(dev());
+    static std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
+#ifdef OS_WINDOWS
+    SetLastError(0);
+    int id = dist(rng);
+    std::string name = (global ? "Global\\" : "") + std::to_string(id);
+
+    HANDLE handle = CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, 1, name.c_str());
+    while (GetLastError() == ERROR_ALREADY_EXISTS) {
+        id = dist(rng);
+        name = (global ? "Global\\" : "") + std::to_string(id);
+
+        if (handle == nullptr) {
+            throw std::runtime_error("Could not get the handle: " + GetLastErrorAsString());
+        } else {
+            CloseHandle(handle);
+        }
+
+        handle = CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, 1, name.c_str());
+    }
+
+    if (handle == nullptr) {
+        throw std::runtime_error("Could not get the handle: " + GetLastErrorAsString());
+    } else {
+        CloseHandle(handle);
+    }
+
+    return std::to_string(id);
+#else
+    static std::hash<std::string> hash;
+
+    int id = dist(rng);
+    key_t key = static_cast<key_t>(hash(std::to_string(id)));
+    int shm_id;
+    while ((shm_id = shmget(key, 1, IPC_CREAT | IPC_EXCL)) < 0) {
+        id = dist(rng);
+        key = static_cast<key_t>(hash(std::to_string(id)));
+    }
+
+    shmctl(shm_id, IPC_RMID, nullptr);
+    return std::to_string(id);
+#endif //OS_WINDOWS
+}
+
+Napi::Value shared_memory::generateId(const Napi::CallbackInfo &info) {
+    bool global = info[0].IsBoolean() && info[0].ToBoolean().Value();
+
+    TRY
+        return Napi::String::New(info.Env(), getGenerateId(global));
+    CATCH_EXCEPTIONS
+}
+
+Napi::Value shared_memory::generateIdAsync(const Napi::CallbackInfo &info) {
+    bool global = info[0].IsBoolean() && info[0].ToBoolean().Value();
+    return napi_tools::promises::promise<std::string>(info.Env(), [global] {
+        return getGenerateId(global);
+    });
+}
+
 shared_memory::shared_memory(const Napi::CallbackInfo &info) : ObjectWrap(info) {
     CHECK_ARGS(napi_tools::string, napi_tools::number);
     global = info[2].IsBoolean() && info[2].ToBoolean().Value();
 
+#ifdef OS_WINDOWS
     std::string name;
     if (global) {
         name = "Global\\" + info[0].ToString().Utf8Value();
     } else {
         name = info[0].ToString().Utf8Value();
     }
+#else
+    std::string name = info[0].ToString().Utf8Value();
+#endif //OS_WINDOWS
 
     size = info[1].ToNumber().Int64Value();
     if (size <= 0) {
@@ -99,7 +184,7 @@ shared_memory::shared_memory(const Napi::CallbackInfo &info) : ObjectWrap(info) 
     Value().DefineProperties({
                                      Napi::PropertyDescriptor::Value("size", Napi::Number::From(info.Env(), size),
                                                                      napi_enumerable),
-                                     Napi::PropertyDescriptor::Value("name", Napi::String::New(info.Env(), name),
+                                     Napi::PropertyDescriptor::Value("name", info[0].ToString(),
                                                                      napi_enumerable),
                                      Napi::PropertyDescriptor::Value("host", Napi::Boolean::New(info.Env(), isHost),
                                                                      napi_enumerable),
@@ -107,9 +192,15 @@ shared_memory::shared_memory(const Napi::CallbackInfo &info) : ObjectWrap(info) 
                                                                      napi_enumerable)
                              });
 
+#ifdef OS_WINDOWS
     HANDLE map;
     if (isHost) {
+        SetLastError(0);
         map = CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, size, name.c_str());
+
+        if (GetLastError() == ERROR_ALREADY_EXISTS) {
+            throw Napi::Error::New(info.Env(), "Could not create the memory handle: " + GetLastErrorAsString());
+        }
     } else {
         map = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, name.c_str());
     }
@@ -124,6 +215,40 @@ shared_memory::shared_memory(const Napi::CallbackInfo &info) : ObjectWrap(info) 
     if (buffer == nullptr) {
         throw Napi::Error::New(info.Env(), "Could not get/create the data buffer: " + GetLastErrorAsString());
     }
+
+    Value().DefineProperty(Napi::PropertyDescriptor::Value("id", Napi::String::New(info.Env(), name), napi_enumerable));
+#else
+    std::hash<std::string> hash;
+    auto key = static_cast<key_t>(hash(name));
+
+    if (isHost) {
+        int id = shmget(key, size, IPC_CREAT | IPC_EXCL);
+        if (id < 0) {
+            throw Napi::Error::New(info.Env(), "Could not create the shared memory segment: " + getErrnoAsString());
+        } else {
+            extraInfo = std::make_shared<extra_info>(id);
+        }
+
+        buffer = static_cast<char *>(shmat(id, nullptr, SHM_R | SHM_W));
+        if (reinterpret_cast<intptr_t>(buffer) <= 0) {
+            throw Napi::Error::New(info.Env(), "Could not attach the shared memory segment: " + getErrnoAsString());
+        }
+    } else {
+        int id = shmget(key, size, SHM_R | SHM_W);
+        if (id < 0) {
+            throw Napi::Error::New(info.Env(), "Could not get the shared memory segment: " + getErrnoAsString());
+        } else {
+            extraInfo = std::make_shared<extra_info>(id);
+        }
+
+        buffer = static_cast<char *>(shmat(id, nullptr, 0));
+        if (reinterpret_cast<intptr_t>(buffer) <= 0) {
+            throw Napi::Error::New(info.Env(), "Could not attach the shared memory segment: " + getErrnoAsString());
+        }
+    }
+
+    Value().DefineProperty(Napi::PropertyDescriptor::Value("id", Napi::Number::From(info.Env(), key), napi_enumerable));
+#endif //OS_WINDOWS
 }
 
 void shared_memory::writeData(const Napi::CallbackInfo &info) {
@@ -184,7 +309,7 @@ void shared_memory::setBuffer(const Napi::CallbackInfo &info, const Napi::Value 
         throw Napi::TypeError::New(info.Env(), "The buffer setter requires a buffer as an argument");
     }
 
-    auto buf = info[0].As < Napi::Buffer < char >> ();
+    auto buf = info[0].As<Napi::Buffer<char >>();
     if (buf.Length() > this->size) {
         throw Napi::Error::New(info.Env(), "Could not write to the buffer: The input is bigger than the buffer size");
     }
@@ -198,6 +323,11 @@ shared_memory::~shared_memory() {
     if (extraInfo->map != nullptr) {
         CloseHandle(extraInfo->map);
         extraInfo->map = nullptr;
+    }
+#else
+    shmdt(this->buffer);
+    if (this->isHost) {
+        shmctl(this->extraInfo->id, IPC_RMID, nullptr);
     }
 #endif // OS_WINDOWS
 }

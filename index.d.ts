@@ -1,5 +1,15 @@
 /**
- * A class for creating shared memory blocks
+ * A class for creating shared memory blocks.
+ *
+ * Note on global properties:
+ * The global property only have an effect on windows
+ * machines, when running on any other machine, the passed
+ * value will be ignored. If true is passed as an argument,
+ * the shared memory block will be accessible globally.
+ * In that case, the program must be run with administrator rights.
+ * On linux, any program creating a shared memory block must be
+ * executed with root rights.
+ * @see https://docs.microsoft.com/en-us/windows/win32/termserv/kernel-object-namespaces
  */
 export default class shared_memory {
     /**
@@ -21,6 +31,22 @@ export default class shared_memory {
      * Whether the memory block can be read globally
      */
     public readonly global: boolean;
+
+    /**
+     * Generate a shared memory block id
+     *
+     * @param global whether the memory can be read globally. Defaults to false.
+     * @return the generated id
+     */
+    public static generateId(global?: boolean): string;
+
+    /**
+     * Generate a shared memory block id
+     *
+     * @param global whether the memory can be read globally. Defaults to false.
+     * @return the generated id
+     */
+    public static generateIdAsync(global?: boolean): Promise<string>;
 
     /**
      * Create a new shared memory block
@@ -68,12 +94,16 @@ export default class shared_memory {
     /**
      * Read a string from the memory.
      * Reads min(strlen(buffer), buffer.length) characters.
+     *
+     * @return the read data
      */
     public read(): string;
 
     /**
      * Read a the data into a buffer.
      * Always reads buffer.length bytes into the buffer.
+     *
+     * @return the read data
      */
     public readBuffer(): Buffer;
 }

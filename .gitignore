@@ -1,5 +1,5 @@
 # Project exclude paths
-/cmake-build-debug/
+/cmake-build-*/
 /node_modules/
 
 build

@@ -13,9 +13,14 @@ const NUM_RUNS = 1000;
 describe('shared_memory', () => {
     describe('local read/write', function () {
         let mem;
+        const id = shared_memory.generateId();
         it('create', () => {
-            mem = new shared_memory("SomeMemory", 1024);
+            mem = new shared_memory(id, 1024);
             assert.strictEqual(mem.size, 1024);
+        });
+
+        it('create existing', () => {
+            assert.throws(() => new shared_memory(id, 1024));
         });
 
         it('string setter/getter', () => {
@@ -61,13 +66,14 @@ describe('shared_memory', () => {
 
     describe('shared read/write', function () {
         let host, client;
+        const id = shared_memory.generateId();
         it('create host', () => {
-            host = new shared_memory("SomeMemory", 1024, false, true);
+            host = new shared_memory(id, 1024, false, true);
             assert.strictEqual(host.size, 1024);
         });
 
         it('create client', () => {
-            client = new shared_memory("SomeMemory", 1024, false, false);
+            client = new shared_memory(id, 1024, false, false);
             assert.strictEqual(client.size, 1024);
         });
 
