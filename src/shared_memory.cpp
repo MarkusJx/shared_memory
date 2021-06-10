@@ -239,7 +239,7 @@ shared_memory::shared_memory(const Napi::CallbackInfo &info) : ObjectWrap(info) 
             throw Napi::Error::New(info.Env(), "Could not attach the shared memory segment: " + getErrnoAsString());
         }
     } else {
-        int id = shmget(key, size, 0777);
+        int id = shmget(key, size, SHM_R | SHM_W);
         if (id < 0) {
             throw Napi::Error::New(info.Env(), "Could not get the shared memory segment: " + getErrnoAsString());
         } else {
