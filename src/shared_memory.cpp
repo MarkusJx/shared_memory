@@ -227,14 +227,14 @@ shared_memory::shared_memory(const Napi::CallbackInfo &info) : ObjectWrap(info) 
     auto key = static_cast<key_t>(hash(name));
 
     if (isHost) {
-        int id = shmget(key, size, IPC_CREAT | IPC_EXCL);
+        int id = shmget(key, size, IPC_CREAT | IPC_EXCL | SHM_R | SHM_W);
         if (id < 0) {
             throw Napi::Error::New(info.Env(), "Could not create the shared memory segment: " + getErrnoAsString());
         } else {
             extraInfo = std::make_shared<extra_info>(id);
         }
 
-        buffer = static_cast<char *>(shmat(id, nullptr, 0777));
+        buffer = static_cast<char *>(shmat(id, nullptr, SHM_R | SHM_W));
         if (reinterpret_cast<intptr_t>(buffer) <= 0) {
             throw Napi::Error::New(info.Env(), "Could not attach the shared memory segment: " + getErrnoAsString());
         }
