@@ -5,8 +5,10 @@
   "main": "index.js",
   "scripts": {
     "build:dev": "cmake-js compile -D",
-    "test": "node test.js",
-    "pretest": "npm run build:dev"
+    "build": "cmake-js build",
+    "test": "mocha",
+    "pretest": "npm run build",
+    "install": "npm run build"
   },
   "author": "MarkusJx",
   "license": "MIT",

@@ -29,7 +29,7 @@ std::string GetLastErrorAsString() {
     //The parameters we pass in, tell Win32 to create the buffer that holds the message for us (because we don't yet know how long the message string will be).
     size_t size = FormatMessageA(
             FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr,
-            errorMessageID, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR) &messageBuffer, 0, nullptr);
+            errorMessageID, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR) & messageBuffer, 0, nullptr);
 
     // If the message ends with a new line
     // (+ a carriage return ['\r'], this is still windows) remove that
@@ -60,9 +60,9 @@ public:
 
 void shared_memory::init(Napi::Env env, Napi::Object &exports) {
     Napi::Function func = DefineClass(env, "shared_memory", {
-            InstanceMethod("writeSync", &shared_memory::writeData, napi_enumerable),
-            InstanceMethod("readSync", &shared_memory::readString, napi_enumerable),
-            InstanceMethod("readBufferSync", &shared_memory::readBuffer, napi_enumerable),
+            InstanceMethod("write", &shared_memory::writeData, napi_enumerable),
+            InstanceMethod("read", &shared_memory::readString, napi_enumerable),
+            InstanceMethod("readBuffer", &shared_memory::readBuffer, napi_enumerable),
             InstanceAccessor("data", &shared_memory::readString, &shared_memory::setString, napi_enumerable),
             InstanceAccessor("buffer", &shared_memory::readBuffer, &shared_memory::setBuffer, napi_enumerable)
     });
@@ -130,11 +130,15 @@ void shared_memory::writeData(const Napi::CallbackInfo &info) {
     CHECK_ARGS(napi_tools::string | napi_tools::buffer);
     std::vector<char> data;
     if (info[0].IsBuffer()) {
-        auto buf = info[0].As<Napi::Buffer<char>>();
+        auto buf = info[0].As<Napi::Buffer<char >>();
         data = std::vector<char>(buf.Data(), buf.Data() + buf.Length());
     } else {
         std::string string = info[0].ToString();
         data = std::vector<char>(string.begin(), string.end());
+
+        if (string.size() < this->size) {
+            this->buffer[string.size()] = '\0';
+        }
     }
 
     if (data.size() > this->size) {
@@ -168,7 +172,11 @@ void shared_memory::setString(const Napi::CallbackInfo &info, const Napi::Value 
         throw Napi::Error::New(info.Env(), "Could not write to the buffer: The input is bigger than the buffer size");
     }
 
-    memcpy(this->buffer, data.data(), data.size());
+    if (data.size() < this->size) {
+        this->buffer[data.size()] = '\0';
+    }
+
+    memcpy(this->buffer, data.c_str(), data.size());
 }
 
 void shared_memory::setBuffer(const Napi::CallbackInfo &info, const Napi::Value &value) {
@@ -176,7 +184,7 @@ void shared_memory::setBuffer(const Napi::CallbackInfo &info, const Napi::Value 
         throw Napi::TypeError::New(info.Env(), "The buffer setter requires a buffer as an argument");
     }
 
-    auto buf = info[0].As<Napi::Buffer<char>>();
+    auto buf = info[0].As < Napi::Buffer < char >> ();
     if (buf.Length() > this->size) {
         throw Napi::Error::New(info.Env(), "Could not write to the buffer: The input is bigger than the buffer size");
     }
