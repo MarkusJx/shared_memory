@@ -94,7 +94,12 @@ void shared_memory::init(Napi::Env env, Napi::Object &exports) {
     env.SetInstanceData<Napi::FunctionReference>(constructor);
 }
 
+#ifdef OS_WINDOWS
 std::string getGenerateId(bool global) {
+#else
+
+std::string getGenerateId(bool) {
+#endif //OS_WINDOWS
     static std::random_device dev;
     static std::mt19937 rng(dev());
     static std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
@@ -229,12 +234,12 @@ shared_memory::shared_memory(const Napi::CallbackInfo &info) : ObjectWrap(info) 
             extraInfo = std::make_shared<extra_info>(id);
         }
 
-        buffer = static_cast<char *>(shmat(id, nullptr, SHM_R | SHM_W));
+        buffer = static_cast<char *>(shmat(id, nullptr, 0777));
         if (reinterpret_cast<intptr_t>(buffer) <= 0) {
             throw Napi::Error::New(info.Env(), "Could not attach the shared memory segment: " + getErrnoAsString());
         }
     } else {
-        int id = shmget(key, size, SHM_R | SHM_W);
+        int id = shmget(key, size, 0777);
         if (id < 0) {
             throw Napi::Error::New(info.Env(), "Could not get the shared memory segment: " + getErrnoAsString());
         } else {
