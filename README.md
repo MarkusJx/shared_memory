@@ -1,4 +1,4 @@
-[!![shared_memory](https://socialify.git.ci/MarkusJx/shared_memory/image?description=1&language=1&owner=1&theme=Light)](https://github.com/MarkusJx/shared_memory#readme)
+[![shared_memory](https://socialify.git.ci/MarkusJx/shared_memory/image?description=1&language=1&owner=1&theme=Light)](https://github.com/MarkusJx/shared_memory#readme)
 
 ## Installation
 ```sh
