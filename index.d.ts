@@ -2,7 +2,7 @@
  * A class for creating shared memory blocks.
  *
  * Note on global properties:
- * The global property only have an effect on windows
+ * The global property only have an effect on Windows
  * machines, when running on any other machine, the passed
  * value will be ignored. If true is passed as an argument,
  * the shared memory block will be accessible globally.
